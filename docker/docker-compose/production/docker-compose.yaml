@@ -40,7 +40,7 @@ services:
       service: network-configuration
   chat-service-frontend:
     container_name: chat-service-frontend
-    image: rupesh1997/chat-service-frontend:1.0.0
+    image: rupesh1997/chat-service-frontend:1.0.1
     depends_on:
       backend-svc:
         condition: service_started
