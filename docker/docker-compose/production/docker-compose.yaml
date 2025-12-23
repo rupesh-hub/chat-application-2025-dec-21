@@ -1,0 +1,31 @@
+services:
+  chat-service-backend:
+    container_name: chat-service-backend
+    image: rupesh1997/chat-service-backend:1.0.0
+    ports:
+      - "8181:8181"
+    environment:
+      SPRING_PROFILES_ACTIVE: default
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8181/actuator/health/readiness"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    extends:
+      file: common-config.yaml
+      service: container-configuration
+  chat-service-frontend:
+    container_name: chat-service-frontend
+    image: rupesh1997/chat-service-frontend:1.0.0
+    depends_on:
+      chat-service-backend:
+        condition: service_healthy
+    ports:
+      - "4200:8080"
+    extends:
+      file: common-config.yaml
+      service: container-configuration
+networks:
+  chat-apps:
+    driver: 'bridge'
