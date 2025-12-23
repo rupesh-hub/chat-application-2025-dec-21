@@ -6,6 +6,7 @@ on:
     paths:
       - 'frontend/**'
       - 'docker/frontend/Dockerfile'
+      - '.github/workflows/frontend-pipeline.yaml'
 
 # Prevents multiple pipelines from trying to commit to the repo at the same time
 concurrency:
