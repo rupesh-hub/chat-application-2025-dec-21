@@ -94,14 +94,14 @@ jobs:
           USER: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
           COMPOSE_PATH="docker/docker-compose/production/docker-compose.yaml"
-          K8S_PATH="kubernetes/backend-deployment.yaml"
+          K8S_PATH="kubernetes/backend.yaml"
           IMAGE_NAME="$USER/chat-service-backend:$VERSION"
 
           # 1. Update Docker Compose using yq (Targeting the backend service specifically)
-          yq -i ".services.chat-service-backend.image = \"$IMAGE_NAME\"" "$COMPOSE_PATH"
+          yq -i ".services.backend-svc.image = \"$IMAGE_NAME\"" "$COMPOSE_PATH"
 
           # 2. Update Kubernetes (Targeting the backend container name)
-          sed -i "/name: chat-app-backend/,/image:/ s|image:.*|image: $IMAGE_NAME|" "$K8S_PATH"
+          sed -i "/name: chat-backend/,/image:/ s|image:.*|image: $IMAGE_NAME|" "$K8S_PATH"
 
           # Store variables for the next step
           echo "VERSION=$VERSION" >> $GITHUB_ENV
