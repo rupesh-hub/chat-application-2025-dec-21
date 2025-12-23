@@ -1,2 +1,4 @@
-package com.alfarays.message.model;public class MessageRequest {
+package com.alfarays.message.model;
+
+public record MessageRequest(String message) {
 }

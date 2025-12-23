@@ -8,6 +8,19 @@ spring:
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:default}
 
+  datasource:
+    url: jdbc:mysql://localhost:3306/chats
+    username: root
+    password: root
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    show-sql: true
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        format_sql: true
+
 server:
   port: 8181
 
@@ -35,7 +48,6 @@ management:
   info:
     env:
       enabled: true
-
 
 info:
   app:

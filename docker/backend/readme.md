@@ -1,9 +1,9 @@
 1. Build Product Service Image
    ```shell
-    docker build -t rupesh1997/chat-service-backend:1.0.0 \
+    docker build -t rupesh1997/chat-service-backend:1.0.1 \
        -t rupesh1997/chat-service-backend:latest \
        --build-arg ACTIVE_PROFILE=docker \
-       --build-arg PROJECT_VERSION=1.0.0 \
+       --build-arg PROJECT_VERSION=1.0.1 \
        -f ../docker/backend/Dockerfile .
     ```
 
@@ -16,6 +16,23 @@
     -e SPRING_PROFILES_ACTIVE=default \
     --network chat-apps-network \
     rupesh1997/chat-service-backend:1.0.0
+    ```
+
+   ```shell
+    #With mysql database dependency
+    #network - check if it is already created
+    docker network inspect chat-apps >/dev/null 2>&1 \
+    || docker network create chat-apps --driver bridge
+    docker system prune -f &&
+    clear &&
+    docker run -d \
+    -p 8181:8181 \
+    --name backend-svc \
+    --network chat-apps \
+    -e SPRING_PROFILES_ACTIVE=docker \
+    -e SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/chats \
+    -e SPRING_DATASOURCE_PASSWORD=root \
+    rupesh1997/chat-service-backend:1.0.1
     ```
 
 
