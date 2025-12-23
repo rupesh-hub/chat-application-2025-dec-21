@@ -63,8 +63,8 @@ jobs:
           # 1. Update Docker Compose (Service Specific)
           yq -i ".services.chat-service-frontend.image = \"$USER/chat-service-frontend:$VERSION\"" docker/docker-compose/production/docker-compose.yaml
           
-          # 2. Update Kubernetes (Targeted by container name)
-          sed -i "/name: chat-frontend/,/image:/ s|image:.*|image: $USER/chat-service-frontend:$VERSION|" kubernetes/deployment.yaml
+          # 2. Update Kubernetes (Targeted by container name) - containers:name
+          sed -i "/name: chat-frontend/,/image:/ s|image:.*|image: $USER/chat-service-frontend:$VERSION|" kubernetes/frontend.yaml
 
       - name: Git Push
         run: |
