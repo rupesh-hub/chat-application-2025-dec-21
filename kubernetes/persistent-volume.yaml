@@ -1,11 +1,15 @@
-kind: PersistentVolume
 apiVersion: v1
+kind: PersistentVolume
 metadata:
   name: local-pv
-  namespace: chats
-  labels:
-    app: local
 spec:
   capacity:
     storage: 1Gi
-
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: local-storage
+  hostPath:
+    path: /mnt/data/mysql
+    type: DirectoryOrCreate

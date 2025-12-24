@@ -1,0 +1,188 @@
+pipeline {
+    agent {
+        // Run on a Docker agent to ensure a clean environment and scalability
+        docker {
+            image 'maven:3.9.6-eclipse-temurin-17'
+            args  '-v /var/run/docker.sock:/var/run/docker.sock' // Required for Docker-in-Docker (Trivy/Build)
+        }
+    }
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        timeout(time: 1, unit: 'HOURS')
+        buildDiscarder(logRotator(numToKeepStr: '20', artifactNumToKeepStr: '5'))
+        parallelsAlwaysFailFast()
+    }
+
+    environment {
+        // Application Metadata
+        APP_NAME        = "chat-service-backend"
+        REGISTRY_USER   = "rupesh1997"
+        DOCKER_REGISTRY = "docker.io"
+
+        // Credentials IDs (Defined in Jenkins Global Credentials)
+        SONAR_CRED      = "sonarqube-token"
+        REGISTRY_CRED   = "dockerhub-creds"
+        GITHUB_CRED     = "github-token-push"
+        SNYK_TOKEN      = credentials('snyk-auth-token')
+
+        // File Paths
+        COMPOSE_PATH    = "docker/docker-compose/production/docker-compose.yaml"
+        K8S_PATH        = "kubernetes/backend.yaml"
+    }
+
+    stages {
+        stage('🛡️ Secret Scanning') {
+            steps {
+                // Scan for hardcoded secrets before doing anything else
+                sh "gitleaks detect --source . -v"
+            }
+        }
+
+        stage('📦 Initialize & Versioning') {
+            steps {
+                script {
+                    // Extract version from pom.xml
+                    env.VERSION = sh(script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout", returnStdout: true).trim()
+                    env.FULL_IMAGE_NAME = "${DOCKER_REGISTRY}/${REGISTRY_USER}/${APP_NAME}:${env.VERSION}"
+                    currentBuild.displayName = "#${BUILD_NUMBER}-${env.VERSION}"
+                }
+            }
+        }
+
+        stage('🧪 Quality & Security Gates') {
+            parallel {
+                stage('Unit Tests & Coverage') {
+                    steps {
+                        sh "mvn clean test"
+                    }
+                    post {
+                        always {
+                            junit '**/target/surefire-reports/*.xml'
+                            // Publish JaCoCo coverage
+                            recordCoverage(tools: [[parser: 'JACOCO']])
+                        }
+                    }
+                }
+
+                stage('SAST (SonarQube)') {
+                    steps {
+                        withSonarQubeEnv('SonarQube-Server') {
+                            sh "mvn sonar:sonar -Dsonar.projectKey=${APP_NAME}"
+                        }
+                    }
+                }
+
+                stage('SCA (Snyk/OWASP)') {
+                    steps {
+                        // Snyk provides better vulnerability intelligence than standard OWASP
+                        sh "snyk test --all-projects"
+                    }
+                }
+            }
+        }
+
+        stage('🏗️ Build & Containerize') {
+            steps {
+                // Build the JAR (Production Profile)
+                sh "mvn package -DskipTests -Pprod"
+
+                // Build Docker Image (Assumes multi-stage Dockerfile with non-root user)
+                sh "docker build -t ${FULL_IMAGE_NAME} ."
+            }
+        }
+
+        stage('🛡️ Container Scanning') {
+            steps {
+                // Scan the built image for OS vulnerabilities
+                // exit-code 1 fails the build if HIGH/CRITICAL issues found
+                sh "trivy image --severity HIGH,CRITICAL --exit-code 1 ${FULL_IMAGE_NAME}"
+            }
+        }
+
+        stage('🚀 Image Promotion') {
+            when { branch 'main' }
+            steps {
+                withCredentials([usernamePassword(credentialsId: "${REGISTRY_CRED}", usernameVariable: 'USER', passwordVariable: 'PASS')]) {
+                    sh "echo ${PASS} | docker login ${DOCKER_REGISTRY} -u ${USER} --password-stdin"
+                    sh "docker push ${FULL_IMAGE_NAME}"
+                }
+            }
+        }
+
+        stage('🛠️ Update Manifests (GitOps)') {
+            when { branch 'main' }
+            steps {
+                script {
+                    // Update Docker Compose
+                    sh "yq -i '.services.backend-svc.image = \"${FULL_IMAGE_NAME}\"' ${COMPOSE_PATH}"
+
+                    // Update K8s Manifest (Regex replacement for safety)
+                    sh "sed -i 's|image: ${REGISTRY_USER}/${APP_NAME}:.*|image: ${FULL_IMAGE_NAME}|g' ${K8S_PATH}"
+
+                    withCredentials([usernamePassword(credentialsId: "${GITHUB_CRED}", usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN')]) {
+                        sh """
+                            git config user.name "Jenkins CI"
+                            git config user.email "jenkins@example.com"
+                            git add ${COMPOSE_PATH} ${K8S_PATH}
+                            if ! git diff --staged --quiet; then
+                                git commit -m 'chore(release): update image to ${env.VERSION} [skip ci]'
+                                git push https://${GH_USER}:${GH_TOKEN}@github.com/${REGISTRY_USER}/your-repo.git HEAD:main
+                            fi
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('🏁 Production Gate') {
+            when { branch 'main' }
+            steps {
+                input message: "Approve deployment to Production?", ok: "Deploy"
+            }
+        }
+
+        stage('🚢 Deploy to Production') {
+            when { branch 'main' }
+            steps {
+                // Deployment via Kubectl (Or ArgoCD sync)
+                sh "kubectl apply -f ${K8S_PATH} --namespace=production"
+                sh "kubectl rollout status deployment/${APP_NAME} --namespace=production"
+            }
+        }
+    }
+
+    post {
+            success {
+                emailext (
+                    to: "${NOTIFY_EMAIL}",
+                    subject: "✅ SUCCESS: ${env.JOB_NAME} [Build #${env.BUILD_NUMBER}]",
+                    body: """<h3>Build Successful</h3>
+                             <p><b>Project:</b> ${env.JOB_NAME}</p>
+                             <p><b>Version:</b> ${env.VERSION}</p>
+                             <p><b>Image:</b> ${env.FULL_IMAGE_NAME}</p>
+                             <p>Check the full details here: <a href="${env.BUILD_URL}">${env.BUILD_URL}</a></p>""",
+                    mimeType: 'text/html'
+                )
+            }
+
+            failure {
+                emailext (
+                    to: "${NOTIFY_EMAIL}",
+                    subject: "❌ FAILED: ${env.JOB_NAME} [Build #${env.BUILD_NUMBER}]",
+                    body: """<h3>Build Failed</h3>
+                             <p>The pipeline failed at stage: <b>${env.STAGE_NAME}</b></p>
+                             <p>Attached is the build log for troubleshooting.</p>
+                             <p>Full Console Output: <a href="${env.BUILD_URL}console">${env.BUILD_URL}console</a></p>""",
+                    attachLog: true,     // This attaches the log file
+                    compressLog: true,   // Zips the log to save space
+                    mimeType: 'text/html'
+                )
+            }
+
+            always {
+                cleanWs()
+            }
+        }
+}
